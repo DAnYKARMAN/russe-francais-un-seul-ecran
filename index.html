@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Passerelle Français ⇄ Русский</title>
+<script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a; color: #f1f5f9;
+    overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+  #ecran {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: 24px;
+    overflow-y: auto;
+  }
+  #langueAffichee {
+    position: fixed; top: 14px; left: 0; right: 0;
+    text-align: center;
+    font-size: 15px; letter-spacing: .5px;
+    color: #64748b; text-transform: uppercase;
+  }
+  #texte {
+    font-size: clamp(28px, 6vw, 64px);
+    line-height: 1.25;
+    font-weight: 600;
+    max-width: 1000px;
+  }
+  #texte.attente { color: #475569; font-weight: 400; font-size: clamp(20px,4vw,32px); }
+  #provisoire { color: #94a3b8; font-weight: 400; }
+  #barre {
+    display: flex; gap: 12px;
+    padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    background: #1e293b;
+  }
+  .btn {
+    flex: 1;
+    border: none; border-radius: 16px;
+    padding: 22px 8px;
+    font-size: 19px; font-weight: 700;
+    color: #fff; cursor: pointer;
+    transition: transform .08s, filter .15s;
+    line-height: 1.3;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn small { display: block; font-size: 13px; font-weight: 500; opacity: .85; margin-top: 4px; }
+  #btnFr { background: #2563eb; }
+  #btnRu { background: #dc2626; }
+  .btn.actif { filter: brightness(1.25); box-shadow: 0 0 0 4px rgba(255,255,255,.35) inset; }
+  .btn.eteint { background: #475569; }
+  #btnVoix {
+    flex: 0 0 64px;
+    background: #334155;
+    font-size: 26px; padding: 22px 0;
+  }
+  #btnVoix.actif { background: #16a34a; }
+  #erreur {
+    position: fixed; bottom: 110px; left: 12px; right: 12px;
+    background: #7f1d1d; color: #fecaca;
+    padding: 12px 16px; border-radius: 12px;
+    font-size: 14px; text-align: center;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+  <div id="langueAffichee">En attente</div>
+
+  <div id="ecran">
+    <div id="texte" class="attente">
+      Appuyez sur un bouton en bas pour commencer a parler.<br>
+      Нажмите кнопку внизу, чтобы говорить.
+    </div>
+  </div>
+
+  <div id="erreur"></div>
+
+  <div id="barre">
+    <button id="btnFr" class="btn" onclick="parler('fr')">
+      FR Je parle francais
+      <small>-&gt; affiche en russe</small>
+    </button>
+    <button id="btnVoix" class="btn" onclick="basculerVoix()" title="Lecture a voix haute">&#128263;</button>
+    <button id="btnRu" class="btn" onclick="parler('ru')">
+      RU Говорю по-русски
+      <small>-&gt; affiche en francais</small>
+    </button>
+  </div>
+
+<script>
+/* ============================================================
+   REGLAGES : mettez votre cle Azure ici
+   ============================================================ */
+const AZURE_KEY    = 'METTRE_LA_CLE_AZURE_ICI';
+const AZURE_REGION = 'francecentral';
+
+const ecran      = document.getElementById('texte');
+const titre      = document.getElementById('langueAffichee');
+const btnFr      = document.getElementById('btnFr');
+const btnRu      = document.getElementById('btnRu');
+const btnVoix    = document.getElementById('btnVoix');
+const boiteErreur= document.getElementById('erreur');
+
+let recognizer = null;
+let langueActive = null;
+let voixActive = false;
+
+function parler(langue){
+  cacherErreur();
+  if(langueActive === langue){ arreter(); return; }
+  arreter();
+  langueActive = langue;
+  majBoutons();
+  demarrer(langue);
+}
+
+function majBoutons(){
+  btnFr.classList.toggle('actif', langueActive === 'fr');
+  btnRu.classList.toggle('actif', langueActive === 'ru');
+  btnFr.classList.toggle('eteint', langueActive === 'ru');
+  btnRu.classList.toggle('eteint', langueActive === 'fr');
+  if(langueActive === 'fr'){ titre.textContent = 'FR -> RU  (le russe s affiche)'; }
+  else if(langueActive === 'ru'){ titre.textContent = 'RU -> FR  (le francais s affiche)'; }
+  else { titre.textContent = 'En attente'; }
+}
+
+function demarrer(langue){
+  if(!window.SpeechSDK){ erreur("Le moteur vocal n a pas pu se charger. Verifiez Internet."); return; }
+  if(AZURE_KEY.indexOf('METTRE') === 0){ erreur("La cle Azure n est pas encore renseignee dans le fichier."); return; }
+
+  const source = (langue === 'fr') ? 'fr-FR' : 'ru-RU';
+  const cible  = (langue === 'fr') ? 'ru'    : 'fr';
+
+  afficherAttente(langue === 'fr' ? 'Parlez en francais...' : 'Говорите по-русски...');
+
+  try{
+    const config = SpeechSDK.SpeechTranslationConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
+    config.speechRecognitionLanguage = source;
+    config.addTargetLanguage(cible);
+    config.setProperty('Speech_SegmentationSilenceTimeoutMs', langue === 'ru' ? '600' : '350');
+
+    const audio = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+    recognizer = new SpeechSDK.TranslationRecognizer(config, audio);
+
+    recognizer.recognizing = function(s,e){
+      const t = e.result.translations && e.result.translations.get(cible);
+      if(t) afficherProvisoire(t);
+    };
+
+    recognizer.recognized = function(s,e){
+      if(e.result.reason === SpeechSDK.ResultReason.TranslatedSpeech){
+        const t = e.result.translations.get(cible);
+        if(t && t.trim()){
+          afficherFinal(t);
+          if(voixActive) lire(t, cible);
+        }
+      }
+    };
+
+    recognizer.canceled = function(s,e){
+      if(e.reason === SpeechSDK.CancellationReason.Error){
+        erreur("Erreur Azure : " + e.errorDetails + " - verifiez la cle.");
+        arreter();
+      }
+    };
+
+    recognizer.startContinuousRecognitionAsync(function(){}, function(err){
+      erreur("Impossible de demarrer le micro : " + err);
+      arreter();
+    });
+  } catch(err){
+    erreur("Erreur : " + (err.message || err));
+    arreter();
+  }
+}
+
+function arreter(){
+  langueActive = null;
+  majBoutons();
+  if(recognizer){
+    const r = recognizer; recognizer = null;
+    try { r.stopContinuousRecognitionAsync(function(){ try{r.close();}catch(_){} }, function(){ try{r.close();}catch(_){} }); }
+    catch(_){ try{r.close();}catch(_){} }
+  }
+}
+
+function afficherAttente(txt){ ecran.className='attente'; ecran.textContent = txt; }
+function afficherProvisoire(txt){ ecran.className=''; ecran.innerHTML = '<span id="provisoire">'+escapeHtml(txt)+'</span>'; }
+function afficherFinal(txt){ ecran.className=''; ecran.textContent = txt; }
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function basculerVoix(){
+  voixActive = !voixActive;
+  btnVoix.innerHTML = voixActive ? '&#128266;' : '&#128263;';
+  btnVoix.classList.toggle('actif', voixActive);
+  if(voixActive){ try{ window.speechSynthesis.cancel(); }catch(_){} }
+}
+function lire(texte, langue){
+  try{
+    const u = new SpeechSynthesisUtterance(texte);
+    u.lang = (langue === 'ru') ? 'ru-RU' : 'fr-FR';
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }catch(_){}
+}
+
+function erreur(msg){ boiteErreur.textContent = msg; boiteErreur.style.display='block'; }
+function cacherErreur(){ boiteErreur.style.display='none'; }
+</script>
+</body>
+</html>
