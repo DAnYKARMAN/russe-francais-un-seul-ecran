@@ -99,10 +99,29 @@
 
 <script>
 /* ============================================================
-   REGLAGES : mettez votre cle Azure ici
+   SECURISE : la cle Azure n est PAS ici.
+   Elle reste cachee sur le serveur (variables Netlify).
+   On recupere un "ticket temporaire" via /api/azure-token.
    ============================================================ */
-const AZURE_KEY    = 'METTRE_LA_CLE_AZURE_ICI';
-const AZURE_REGION = 'francecentral';
+let azureToken  = null;   // le ticket temporaire recu du serveur
+let azureRegion = null;   // la region recue du serveur
+let tokenExpire = 0;      // a quel moment le ticket devient perime
+
+// Va chercher un ticket frais aupres de la fonction serveur.
+async function recupererToken(){
+  // Si on a deja un ticket valide (moins de 9 min), on le reutilise.
+  if(azureToken && Date.now() < tokenExpire){ return true; }
+  const rep = await fetch('/api/azure-token');
+  if(!rep.ok){
+    const d = await rep.json().catch(function(){ return {}; });
+    throw new Error(d.error || ('Serveur token: ' + rep.status));
+  }
+  const data = await rep.json();
+  azureToken  = data.token;
+  azureRegion = data.region;
+  tokenExpire = Date.now() + 9 * 60 * 1000;  // valable 9 minutes par securite
+  return true;
+}
 
 const ecran      = document.getElementById('texte');
 const titre      = document.getElementById('langueAffichee');
@@ -134,17 +153,27 @@ function majBoutons(){
   else { titre.textContent = 'En attente'; }
 }
 
-function demarrer(langue){
+async function demarrer(langue){
   if(!window.SpeechSDK){ erreur("Le moteur vocal n a pas pu se charger. Verifiez Internet."); return; }
-  if(AZURE_KEY.indexOf('METTRE') === 0){ erreur("La cle Azure n est pas encore renseignee dans le fichier."); return; }
 
   const source = (langue === 'fr') ? 'fr-FR' : 'ru-RU';
   const cible  = (langue === 'fr') ? 'ru'    : 'fr';
 
+  afficherAttente(langue === 'fr' ? 'Connexion...' : 'Соединение...');
+
+  // On recupere d abord le ticket temporaire aupres du serveur.
+  try{
+    await recupererToken();
+  } catch(err){
+    erreur("Impossible d obtenir l acces Azure : " + (err.message || err));
+    arreter();
+    return;
+  }
+
   afficherAttente(langue === 'fr' ? 'Parlez en francais...' : 'Говорите по-русски...');
 
   try{
-    const config = SpeechSDK.SpeechTranslationConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
+    const config = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(azureToken, azureRegion);
     config.speechRecognitionLanguage = source;
     config.addTargetLanguage(cible);
     config.setProperty('Speech_SegmentationSilenceTimeoutMs', langue === 'ru' ? '600' : '350');

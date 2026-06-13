@@ -1,0 +1,42 @@
+=========================================================
+  PASSERELLE Francais <-> Russe  -  Version securisee (B)
+  Un seul ecran, sur le meme appareil.
+=========================================================
+
+CE QUE CONTIENT CE DOSSIER
+--------------------------
+  index.html                       -> la page (a deposer a la RACINE du depot)
+  netlify/functions/azure-token.js -> la petite fonction serveur qui garde
+                                       la cle Azure secrete
+
+POURQUOI C EST SECURISE
+-----------------------
+  La cle Azure n est PLUS ecrite dans la page.
+  Elle reste cachee dans les variables d environnement de Netlify.
+  La fonction serveur demande a Azure un "ticket" temporaire (10 min)
+  et c est seulement ce ticket qui arrive dans le navigateur.
+
+A FAIRE UNE SEULE FOIS DANS NETLIFY
+-----------------------------------
+  Dans Netlify : Site settings -> Environment variables.
+  Verifiez que ces deux variables existent bien :
+
+     AZURE_SPEECH_KEY     = (votre cle Azure)
+     AZURE_SPEECH_REGION  = francecentral
+
+  (Vous les avez deja dans vos variables partagees Netlify.)
+
+MISE EN LIGNE
+-------------
+  1. Deposez index.html et le dossier netlify/ a la racine du depot GitHub.
+  2. Netlify redeploie tout seul.
+  3. Ouvrez l adresse du site : l ecran "Passerelle" apparait.
+
+UTILISATION
+-----------
+  Bouton bleu  : je parle francais  -> le russe s affiche en grand
+  Bouton rouge : je parle russe      -> le francais s affiche en grand
+  Bouton central (haut-parleur) : lecture a voix haute oui / non
+
+  Un seul micro a la fois : celui qui a appuye en dernier.
+  Pour arreter, on rappuie sur le meme bouton.
